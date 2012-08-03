@@ -1,0 +1,549 @@
+diff --git a/libavcodec/dvbsubdec.c b/libavcodec/dvbsubdec.c
+index 28426d1..1464a19 100644
+--- a/libavcodec/dvbsubdec.c
++++ b/libavcodec/dvbsubdec.c
+@@ -1,6 +1,7 @@
+ /*
+  * DVB subtitle decoding
+  * Copyright (c) 2005 Ian Caulfield
++ * Copyright (c) 2012 Cedric Fung
+  *
+  * This file is part of FFmpeg.
+  *
+@@ -370,6 +371,8 @@ static av_cold int dvbsub_init_decoder(AVCodecContext *avctx)
+     int i, r, g, b, a = 0;
+     DVBSubContext *ctx = avctx->priv_data;
+
++    avctx->pix_fmt = PIX_FMT_PAL8;
++
+     if (!avctx->extradata || avctx->extradata_size != 4) {
+         av_log(avctx, AV_LOG_WARNING, "Invalid extradata, subtitle streams may be combined!\n");
+         ctx->composition_id = -1;
+diff --git a/libavcodec/dvdsubdec.c b/libavcodec/dvdsubdec.c
+index ec86b25..7adf18b 100644
+--- a/libavcodec/dvdsubdec.c
++++ b/libavcodec/dvdsubdec.c
+@@ -1,6 +1,7 @@
+ /*
+  * DVD subtitle decoding
+  * Copyright (c) 2005 Fabrice Bellard
++ * Copyright (c) 2012 Cedric Fung
+  *
+  * This file is part of FFmpeg.
+  *
+@@ -517,6 +518,8 @@ static int dvdsub_init(AVCodecContext *avctx)
+     DVDSubContext *ctx = (DVDSubContext*) avctx->priv_data;
+     char *dataorig, *data;
+
++    avctx->pix_fmt = PIX_FMT_PAL8;
++
+     if (!avctx->extradata || !avctx->extradata_size)
+         return 1;
+
+diff --git a/libavcodec/rv34.c b/libavcodec/rv34.c
+index 62619b3..dab19e8 100644
+--- a/libavcodec/rv34.c
++++ b/libavcodec/rv34.c
+@@ -1444,7 +1444,7 @@ static int rv34_decode_slice(RV34DecContext *r, int end, const uint8_t* buf, int
+             memmove(r->intra_types_hist, r->intra_types, r->intra_types_stride * 4 * sizeof(*r->intra_types_hist));
+             memset(r->intra_types, -1, r->intra_types_stride * 4 * sizeof(*r->intra_types_hist));
+
+-            if(r->loop_filter && s->mb_y >= 2)
++            if(s->avctx->skip_loop_filter != AVDISCARD_ALL && r->loop_filter && s->mb_y >= 2)
+                 r->loop_filter(r, s->mb_y - 2);
+
+             if (HAVE_THREADS && (s->avctx->active_thread_type & FF_THREAD_FRAME))
+@@ -1770,7 +1770,7 @@ int ff_rv34_decode_frame(AVCodecContext *avctx,
+
+     if (s->current_picture_ptr) {
+         if (last) {
+-            if(r->loop_filter)
++            if(s->avctx->skip_loop_filter != AVDISCARD_ALL && r->loop_filter)
+                 r->loop_filter(r, s->mb_height - 1);
+
+             *got_picture_ptr = finish_frame(avctx, pict);
+diff --git a/libavcodec/utils.c b/libavcodec/utils.c
+index ddd63db..8b5b087 100644
+--- a/libavcodec/utils.c
++++ b/libavcodec/utils.c
+@@ -1986,6 +1986,8 @@ void avcodec_flush_buffers(AVCodecContext *avctx)
+ static void video_free_buffers(AVCodecContext *s)
+ {
+     AVCodecInternal *avci = s->internal;
++    if (!avci) return;
++
+     int i, j;
+
+     if (!avci->buffer)
+diff --git a/libavformat/Makefile b/libavformat/Makefile
+index 54b26c1..b542d43 100644
+--- a/libavformat/Makefile
++++ b/libavformat/Makefile
+@@ -371,6 +371,7 @@ OBJS-$(CONFIG_CACHE_PROTOCOL)            += cache.o
+ OBJS-$(CONFIG_CONCAT_PROTOCOL)           += concat.o
+ OBJS-$(CONFIG_CRYPTO_PROTOCOL)           += crypto.o
+ OBJS-$(CONFIG_FILE_PROTOCOL)             += file.o
++OBJS-$(CONFIG_FD_PROTOCOL)               += fd.o
+ OBJS-$(CONFIG_GOPHER_PROTOCOL)           += gopher.o
+ OBJS-$(CONFIG_HLS_PROTOCOL)              += hlsproto.o
+ OBJS-$(CONFIG_HTTP_PROTOCOL)             += http.o httpauth.o
+@@ -378,6 +379,7 @@ OBJS-$(CONFIG_HTTPPROXY_PROTOCOL)        += http.o httpauth.o
+ OBJS-$(CONFIG_HTTPS_PROTOCOL)            += http.o httpauth.o
+ OBJS-$(CONFIG_MMSH_PROTOCOL)             += mmsh.o mms.o asf.o
+ OBJS-$(CONFIG_MMST_PROTOCOL)             += mmst.o mms.o asf.o
++OBJS-$(CONFIG_MMSU_PROTOCOL)             += mmsu.o mmsh.o mmst.o mms.o asf.o
+ OBJS-$(CONFIG_MD5_PROTOCOL)              += md5proto.o
+ OBJS-$(CONFIG_PIPE_PROTOCOL)             += file.o
+ OBJS-$(CONFIG_RTMP_PROTOCOL)             += rtmpproto.o rtmppkt.o
+diff --git a/libavformat/allformats.c b/libavformat/allformats.c
+index 7ea4ebb..b0ccebf 100644
+--- a/libavformat/allformats.c
++++ b/libavformat/allformats.c
+@@ -273,6 +273,7 @@ void av_register_all(void)
+     REGISTER_PROTOCOL (CONCAT, concat);
+     REGISTER_PROTOCOL (CRYPTO, crypto);
+     REGISTER_PROTOCOL (FILE, file);
++    REGISTER_PROTOCOL (FD, fd);
+     REGISTER_PROTOCOL (GOPHER, gopher);
+     REGISTER_PROTOCOL (HLS, hls);
+     REGISTER_PROTOCOL (HTTP, http);
+@@ -280,6 +281,7 @@ void av_register_all(void)
+     REGISTER_PROTOCOL (HTTPS, https);
+     REGISTER_PROTOCOL (MMSH, mmsh);
+     REGISTER_PROTOCOL (MMST, mmst);
++    REGISTER_PROTOCOL (MMSU, mmsu);
+     REGISTER_PROTOCOL (MD5,  md5);
+     REGISTER_PROTOCOL (PIPE, pipe);
+     REGISTER_PROTOCOL (RTMP, rtmp);
+diff --git a/libavformat/fd.c b/libavformat/fd.c
+new file mode 100644
+index 0000000..d8d2e41
+--- /dev/null
++++ b/libavformat/fd.c
+@@ -0,0 +1,95 @@
++/*
++ * Copyright (c) 2010 Cedric Fung (wolfplanet@gmail.com)
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with FFmpeg; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++#include "libavutil/avstring.h"
++#include "avformat.h"
++#include <fcntl.h>
++#if HAVE_SETMODE
++#include <io.h>
++#endif
++#include <unistd.h>
++#include <sys/stat.h>
++#include <stdlib.h>
++#include "os_support.h"
++#include "url.h"
++
++
++static int file_read(URLContext *h, unsigned char *buf, int size) {
++	int fd = (intptr_t) h->priv_data;
++	return read(fd, buf, size);
++}
++
++static int file_write(URLContext *h, const unsigned char *buf, int size) {
++	int fd = (intptr_t) h->priv_data;
++	return write(fd, buf, size);
++}
++
++static int file_get_handle(URLContext *h) {
++	return (intptr_t) h->priv_data;
++}
++
++/* XXX: use llseek */
++static int64_t file_seek(URLContext *h, int64_t pos, int whence) {
++	int fd = (intptr_t) h->priv_data;
++	if (whence == AVSEEK_SIZE) {
++		struct stat st;
++		int ret = fstat(fd, &st);
++		return ret < 0 ? AVERROR(errno) : st.st_size;
++	}
++	return lseek64(fd, pos, whence);
++}
++
++
++static int fd_open(URLContext *h, const char *filename, int flags) {
++	int fd;
++  struct stat st;
++	char *final;
++	av_strstart(filename, "fd:", &filename);
++
++	fd = strtol(filename, &final, 10);
++	if((filename == final) || *final ) {/* No digits found, or something like 10ab */
++		if (flags & O_WRONLY) {
++			fd = 1;
++		} else {
++			fd = 0;
++		}
++	}
++#if HAVE_SETMODE
++	setmode(fd, O_BINARY | O_RDONLY);
++#endif
++	h->priv_data = (void *) (intptr_t) fd;
++  h->is_streamed = !fstat(fd, &st) && S_ISFIFO(st.st_mode);
++	return 0;
++}
++
++static int file_close(URLContext *h) {
++    int fd = (intptr_t) h->priv_data;
++    return close(fd);
++}
++
++URLProtocol ff_fd_protocol = {
++	.name                = "fd",
++	.url_open            = fd_open,
++	.url_read            = file_read,
++	.url_write           = file_write,
++	.url_seek            = file_seek,
++	.url_close           = file_close,
++	.url_get_file_handle = file_get_handle,
++};
+diff --git a/libavformat/file.c b/libavformat/file.c
+index c54ec28..c85362c 100644
+--- a/libavformat/file.c
++++ b/libavformat/file.c
+@@ -105,7 +105,7 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
+         int ret = fstat(fd, &st);
+         return ret < 0 ? AVERROR(errno) : (S_ISFIFO(st.st_mode) ? 0 : st.st_size);
+     }
+-    return lseek(fd, pos, whence);
++    return lseek64(fd, pos, whence);
+ }
+
+ static int file_close(URLContext *h)
+diff --git a/libavformat/hls.c b/libavformat/hls.c
+index a51a616..bf4c7f5 100644
+--- a/libavformat/hls.c
++++ b/libavformat/hls.c
+@@ -1,6 +1,7 @@
+ /*
+  * Apple HTTP Live Streaming demuxer
+  * Copyright (c) 2010 Martin Storsjo
++ * Copyright (c) 2011 Cedirc Fung (wolfplanet@gmail.com)
+  *
+  * This file is part of FFmpeg.
+  *
+@@ -56,7 +57,8 @@ enum KeyType {
+ };
+
+ struct segment {
+-    int duration;
++    int previous_duration; // in seconds
++    int duration; // in seconds
+     char url[MAX_URL_SIZE];
+     char key[MAX_URL_SIZE];
+     enum KeyType key_type;
+@@ -202,7 +204,7 @@ static void handle_key_args(struct key_info *info, const char *key,
+ static int parse_playlist(HLSContext *c, const char *url,
+                           struct variant *var, AVIOContext *in)
+ {
+-    int ret = 0, duration = 0, is_segment = 0, is_variant = 0, bandwidth = 0;
++    int ret = 0, duration = 0, is_segment = 0, is_variant = 0, bandwidth = 0, previous_duration1 = 0, previous_duration = 0;
+     enum KeyType key_type = KEY_NONE;
+     uint8_t iv[16] = "";
+     int has_iv = 0;
+@@ -270,6 +272,8 @@ static int parse_playlist(HLSContext *c, const char *url,
+         } else if (av_strstart(line, "#EXT-X-ENDLIST", &ptr)) {
+             if (var)
+                 var->finished = 1;
++        } else if (av_strstart(line, "#EXT-X-DISCONTINUITY", &ptr)) {
++            previous_duration = previous_duration1;
+         } else if (av_strstart(line, "#EXTINF:", &ptr)) {
+             is_segment = 1;
+             duration   = atoi(ptr);
+@@ -298,6 +302,8 @@ static int parse_playlist(HLSContext *c, const char *url,
+                     ret = AVERROR(ENOMEM);
+                     goto fail;
+                 }
++                previous_duration1 += duration;
++                seg->previous_duration = previous_duration;
+                 seg->duration = duration;
+                 seg->key_type = key_type;
+                 if (has_iv) {
+@@ -654,9 +660,16 @@ start:
+     }
+     /* If we got a packet, return it */
+     if (minvariant >= 0) {
+-        *pkt = c->variants[minvariant]->pkt;
+-        pkt->stream_index += c->variants[minvariant]->stream_offset;
+-        reset_packet(&c->variants[minvariant]->pkt);
++        struct variant *v = c->variants[minvariant];
++        *pkt = v->pkt;
++        pkt->stream_index += v->stream_offset;
++        int seq_no = v->cur_seq_no - v->start_seq_no;
++        if (seq_no < v->n_segments && s->streams[pkt->stream_index]) {
++          int64_t pred = v->segments[seq_no]->previous_duration / av_q2d(s->streams[pkt->stream_index]->time_base);
++          if (pkt->dts != AV_NOPTS_VALUE && pkt->dts < pred) pkt->dts += pred;
++          if (pkt->pts != AV_NOPTS_VALUE && pkt->pts < pred) pkt->pts += pred;
++        }
++        reset_packet(&v->pkt);
+         return 0;
+     }
+     return AVERROR_EOF;
+diff --git a/libavformat/http.c b/libavformat/http.c
+index 5355bdc..366b814 100644
+--- a/libavformat/http.c
++++ b/libavformat/http.c
+@@ -1,6 +1,7 @@
+ /*
+  * HTTP protocol for ffmpeg client
+  * Copyright (c) 2000, 2001 Fabrice Bellard
++ * Copyright (c) 2012 Cedric Fung (wolfplanet@gmail.com)
+  *
+  * This file is part of FFmpeg.
+  *
+@@ -36,6 +37,8 @@
+ #define BUFFER_SIZE 1024
+ #define MAX_REDIRECTS 8
+
++#define DEFAULT_UA "Mozilla/5.0 (iPad; U; CPU OS 4_2_1 like Mac OS X; zh-cn) AppleWebKit/533.17.9 (KHTML, like Gecko) Version/5.0.2 Mobile/8C148 Safari/6533.18.5"
++
+ typedef struct {
+     const AVClass *class;
+     URLContext *hd;
+@@ -404,14 +407,15 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+                                                 local_path, method);
+
+     /* set default headers if needed */
++    av_log(h, AV_LOG_VERBOSE, "HTTP host %s %s\n", hoststr, strstr(hoststr, "youku.com"));
+     if (!has_header(s->headers, "\r\nUser-Agent: "))
+         len += av_strlcatf(headers + len, sizeof(headers) - len,
+                            "User-Agent: %s\r\n",
+-                           s->user_agent ? s->user_agent : LIBAVFORMAT_IDENT);
++                           s->user_agent ? s->user_agent : DEFAULT_UA);
+     if (!has_header(s->headers, "\r\nAccept: "))
+         len += av_strlcpy(headers + len, "Accept: */*\r\n",
+                           sizeof(headers) - len);
+-    if (!has_header(s->headers, "\r\nRange: ") && !post)
++    if (!has_header(s->headers, "\r\nRange: ") && !post && !strstr(hoststr, "youku.com"))
+         len += av_strlcatf(headers + len, sizeof(headers) - len,
+                            "Range: bytes=%"PRId64"-\r\n", s->off);
+
+@@ -450,6 +454,8 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+              authstr ? authstr : "",
+              proxyauthstr ? "Proxy-" : "", proxyauthstr ? proxyauthstr : "");
+
++
++    av_log(h, AV_LOG_VERBOSE, "HTTP HEADERS: \n%s\n", s->buffer);
+     av_freep(&authstr);
+     av_freep(&proxyauthstr);
+     if ((err = ffurl_write(s->hd, s->buffer, strlen(s->buffer))) < 0)
+diff --git a/libavformat/isom.h b/libavformat/isom.h
+index 5f7f189..202b66a 100644
+--- a/libavformat/isom.h
++++ b/libavformat/isom.h
+@@ -3,6 +3,7 @@
+  * copyright (c) 2001 Fabrice Bellard
+  * copyright (c) 2002 Francois Revol <revol@free.fr>
+  * copyright (c) 2006 Baptiste Coudurier <baptiste.coudurier@free.fr>
++ * Copyright (c) 2011 Cedirc Fung (wolfplanet@gmail.com)
+  *
+  * This file is part of FFmpeg.
+  *
+@@ -154,6 +155,8 @@ typedef struct MOVContext {
+     int chapter_track;
+     int use_absolute_path;
+     int64_t next_root_atom; ///< offset of the next root atom
++    uint8_t esds_data[256];
++    int64_t esds_size;
+ } MOVContext;
+
+ int ff_mp4_read_descr_len(AVIOContext *pb);
+diff --git a/libavformat/mmsh.c b/libavformat/mmsh.c
+index d6e3982..b786a54 100644
+--- a/libavformat/mmsh.c
++++ b/libavformat/mmsh.c
+@@ -69,6 +69,7 @@ static int mmsh_close(URLContext *h)
+         ffurl_close(mms->mms_hd);
+     av_free(mms->streams);
+     av_free(mms->asf_header);
++    av_freep(&h->priv_data);
+     return 0;
+ }
+
+@@ -217,9 +218,12 @@ static int mmsh_open_internal(URLContext *h, const char *uri, int flags, int tim
+     char httpname[256], path[256], host[128];
+     char *stream_selection = NULL;
+     char headers[1024];
+-    MMSHContext *mmsh = h->priv_data;
++    MMSHContext *mmsh;
+     MMSContext *mms;
+
++    mmsh = h->priv_data = av_mallocz(sizeof(MMSHContext));
++    if (!h->priv_data)
++      return AVERROR(ENOMEM);
+     mmsh->request_seq = h->is_streamed = 1;
+     mms = &mmsh->mms;
+     av_strlcpy(mmsh->location, uri, sizeof(mmsh->location));
+@@ -405,6 +409,6 @@ URLProtocol ff_mmsh_protocol = {
+     .url_seek       = mmsh_seek,
+     .url_close      = mmsh_close,
+     .url_read_seek  = mmsh_read_seek,
+-    .priv_data_size = sizeof(MMSHContext),
++    .priv_data_size = 0, // I manage the mmsh and mmst with mms:// , set to 0 to prevent utils.c
+     .flags          = URL_PROTOCOL_FLAG_NETWORK,
+ };
+diff --git a/libavformat/mmst.c b/libavformat/mmst.c
+index c3d2ebb..92ab703 100644
+--- a/libavformat/mmst.c
++++ b/libavformat/mmst.c
+@@ -470,6 +470,7 @@ static int mms_close(URLContext *h)
+     /* free all separately allocated pointers in mms */
+     av_free(mms->streams);
+     av_free(mms->asf_header);
++    av_freep(&h->priv_data);
+
+     return 0;
+ }
+@@ -501,12 +502,15 @@ static void clear_stream_buffers(MMSContext *mms)
+
+ static int mms_open(URLContext *h, const char *uri, int flags)
+ {
+-    MMSTContext *mmst = h->priv_data;
++    MMSTContext *mmst;
+     MMSContext *mms;
+     int port, err;
+     char tcpname[256];
+
+     h->is_streamed = 1;
++    mmst = h->priv_data = av_mallocz(sizeof(MMSTContext));
++    if (!h->priv_data)
++      return AVERROR(ENOMEM);
+     mms = &mmst->mms;
+
+     // only for MMS over TCP, so set proto = NULL
+@@ -624,6 +628,6 @@ URLProtocol ff_mmst_protocol = {
+     .url_open       = mms_open,
+     .url_read       = mms_read,
+     .url_close      = mms_close,
+-    .priv_data_size = sizeof(MMSTContext),
++    .priv_data_size = 0, // I manage the mmsh and mmst with mms:// , set to 0 to prevent utils.c
+     .flags          = URL_PROTOCOL_FLAG_NETWORK,
+ };
+diff --git a/libavformat/mmsu.c b/libavformat/mmsu.c
+new file mode 100644
+index 0000000..33e96e6
+--- /dev/null
++++ b/libavformat/mmsu.c
+@@ -0,0 +1,77 @@
++/*
++ * Just combine mmsh and mmst
++ * Copyright (c) Cedric Fung <wolfplanet@gmail.com>
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with FFmpeg; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++#include <fcntl.h>
++#if HAVE_SETMODE
++#include <io.h>
++#endif
++#include <unistd.h>
++#include <sys/stat.h>
++#include <stdlib.h>
++#include "mms.h"
++#include "asf.h"
++#include "libavutil/intreadwrite.h"
++
++int mmst = 0;
++int mmsh = 0;
++
++static int mmsu_open(URLContext *h, const char *uri, int flags) {
++  extern URLProtocol ff_mmst_protocol;
++  extern URLProtocol ff_mmsh_protocol;
++  int ret;
++
++  if ((ret = ff_mmst_protocol.url_open(h, uri, flags)) == 0)
++    mmst = 1;
++  else if ((ret = ff_mmsh_protocol.url_open(h, uri, flags)) == 0)
++    mmsh = 1;
++
++  return ret;
++}
++
++static int mmsu_read(URLContext *h, uint8_t *buf, int size) {
++  extern URLProtocol ff_mmst_protocol;
++  extern URLProtocol ff_mmsh_protocol;
++  if (mmst)
++    return ff_mmst_protocol.url_read(h, buf, size);
++  else if (mmsh)
++    return ff_mmsh_protocol.url_read(h, buf, size);
++
++  return 0;
++}
++
++static int mmsu_close(URLContext *h) {
++  extern URLProtocol ff_mmst_protocol;
++  extern URLProtocol ff_mmsh_protocol;
++  if (mmst)
++    return ff_mmst_protocol.url_close(h);
++  else if (mmsh)
++    return ff_mmsh_protocol.url_close(h);
++
++  return 0;
++}
++
++
++URLProtocol ff_mmsu_protocol = {
++  .name      = "mms",
++  .url_open  = mmsu_open,
++  .url_read  = mmsu_read,
++  .url_close = mmsu_close,
++};
+diff --git a/libavformat/mov.c b/libavformat/mov.c
+index becfeec..4d90933 100644
+--- a/libavformat/mov.c
++++ b/libavformat/mov.c
+@@ -2,6 +2,7 @@
+  * MOV demuxer
+  * Copyright (c) 2001 Fabrice Bellard
+  * Copyright (c) 2009 Baptiste Coudurier <baptiste dot coudurier at gmail dot com>
++ * Copyright (c) 2011 Cedirc Fung (wolfplanet@gmail.com)
+  *
+  * This file is part of FFmpeg.
+  *
+@@ -525,6 +526,13 @@ int ff_mov_read_esds(AVFormatContext *fc, AVIOContext *pb, MOVAtom atom)
+     st = fc->streams[fc->nb_streams-1];
+
+     avio_rb32(pb); /* version + flags */
++    MOVContext *c = fc->priv_data;
++    int64_t left = (int64_t)atom.size;
++    if (left > c->esds_size + 3 && left <= (off_t)sizeof(c->esds_data)) {
++      avio_read(pb, c->esds_data, left - 4);
++      c->esds_size = left - 4;
++      avio_skip(pb, 4 - left);
++    }
+     ff_mp4_read_descr(fc, pb, &tag);
+     if (tag == MP4ESDescrTag) {
+         ff_mp4_parse_es_descr(pb, NULL);
