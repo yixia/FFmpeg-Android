@@ -1,8 +1,14 @@
-The FFmpeg code used in VPlayer
-===============================
+The FFmpeg code used in VPlayer for Android
+===========================================
 
-Build Notes
---------------
+BitBucket version
+-----------------
+
+https://bitbucket.org/ABitNo/ffmpegandroid
+
+
+Build
+-----
 
 0. Install git, Android ndk
 1. `$ export ANDROID_NDK=/path/to/your/android-ndk`
