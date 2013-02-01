@@ -1,11 +1,6 @@
 The FFmpeg code used in VPlayer for Android
 ===========================================
 
-BitBucket version
------------------
-
-https://bitbucket.org/ABitNo/ffmpegandroid
-
 
 Build
 -----
