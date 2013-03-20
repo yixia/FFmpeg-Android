@@ -63,10 +63,10 @@ index 62619b3..dab19e8 100644
 
              *got_picture_ptr = finish_frame(avctx, pict);
 diff --git a/libavcodec/utils.c b/libavcodec/utils.c
-index ddd63db..8b5b087 100644
+index 63aa862..acba3cc 100644
 --- a/libavcodec/utils.c
 +++ b/libavcodec/utils.c
-@@ -1986,6 +1986,8 @@ void avcodec_flush_buffers(AVCodecContext *avctx)
+@@ -2040,6 +2040,8 @@ void avcodec_flush_buffers(AVCodecContext *avctx)
  static void video_free_buffers(AVCodecContext *s)
  {
      AVCodecInternal *avci = s->internal;
@@ -76,18 +76,18 @@ index ddd63db..8b5b087 100644
 
      if (!avci->buffer)
 diff --git a/libavformat/Makefile b/libavformat/Makefile
-index 54b26c1..b542d43 100644
+index 45ae6ea..4387ff1 100644
 --- a/libavformat/Makefile
 +++ b/libavformat/Makefile
-@@ -371,6 +371,7 @@ OBJS-$(CONFIG_CACHE_PROTOCOL)            += cache.o
- OBJS-$(CONFIG_CONCAT_PROTOCOL)           += concat.o
+@@ -375,6 +375,7 @@ OBJS-$(CONFIG_CONCAT_PROTOCOL)           += concat.o
  OBJS-$(CONFIG_CRYPTO_PROTOCOL)           += crypto.o
+ OBJS-$(CONFIG_FFRTMPHTTP_PROTOCOL)       += rtmphttp.o
  OBJS-$(CONFIG_FILE_PROTOCOL)             += file.o
 +OBJS-$(CONFIG_FD_PROTOCOL)               += fd.o
  OBJS-$(CONFIG_GOPHER_PROTOCOL)           += gopher.o
  OBJS-$(CONFIG_HLS_PROTOCOL)              += hlsproto.o
  OBJS-$(CONFIG_HTTP_PROTOCOL)             += http.o httpauth.o
-@@ -378,6 +379,7 @@ OBJS-$(CONFIG_HTTPPROXY_PROTOCOL)        += http.o httpauth.o
+@@ -382,6 +383,7 @@ OBJS-$(CONFIG_HTTPPROXY_PROTOCOL)        += http.o httpauth.o
  OBJS-$(CONFIG_HTTPS_PROTOCOL)            += http.o httpauth.o
  OBJS-$(CONFIG_MMSH_PROTOCOL)             += mmsh.o mms.o asf.o
  OBJS-$(CONFIG_MMST_PROTOCOL)             += mmst.o mms.o asf.o
@@ -96,18 +96,18 @@ index 54b26c1..b542d43 100644
  OBJS-$(CONFIG_PIPE_PROTOCOL)             += file.o
  OBJS-$(CONFIG_RTMP_PROTOCOL)             += rtmpproto.o rtmppkt.o
 diff --git a/libavformat/allformats.c b/libavformat/allformats.c
-index 7ea4ebb..b0ccebf 100644
+index 94dc347..68e5525 100644
 --- a/libavformat/allformats.c
 +++ b/libavformat/allformats.c
-@@ -273,6 +273,7 @@ void av_register_all(void)
-     REGISTER_PROTOCOL (CONCAT, concat);
+@@ -274,6 +274,7 @@ void av_register_all(void)
      REGISTER_PROTOCOL (CRYPTO, crypto);
+     REGISTER_PROTOCOL (FFRTMPHTTP, ffrtmphttp);
      REGISTER_PROTOCOL (FILE, file);
 +    REGISTER_PROTOCOL (FD, fd);
      REGISTER_PROTOCOL (GOPHER, gopher);
      REGISTER_PROTOCOL (HLS, hls);
      REGISTER_PROTOCOL (HTTP, http);
-@@ -280,6 +281,7 @@ void av_register_all(void)
+@@ -281,6 +282,7 @@ void av_register_all(void)
      REGISTER_PROTOCOL (HTTPS, https);
      REGISTER_PROTOCOL (MMSH, mmsh);
      REGISTER_PROTOCOL (MMST, mmst);
@@ -115,6 +115,19 @@ index 7ea4ebb..b0ccebf 100644
      REGISTER_PROTOCOL (MD5,  md5);
      REGISTER_PROTOCOL (PIPE, pipe);
      REGISTER_PROTOCOL (RTMP, rtmp);
+diff --git a/libavformat/avformat.h b/libavformat/avformat.h
+index 3bbc683..327edbc 100644
+--- a/libavformat/avformat.h
++++ b/libavformat/avformat.h
+@@ -912,7 +912,7 @@ typedef struct AVFormatContext {
+     unsigned int nb_streams;
+     AVStream **streams;
+
+-    char filename[1024]; /**< input or output filename */
++    char filename[10240]; /**< input or output filename */
+
+     /**
+      * Decoding: position of the first frame of the component, in
 diff --git a/libavformat/fd.c b/libavformat/fd.c
 new file mode 100644
 index 0000000..d8d2e41
@@ -299,7 +312,7 @@ index a51a616..bf4c7f5 100644
      }
      return AVERROR_EOF;
 diff --git a/libavformat/http.c b/libavformat/http.c
-index 5355bdc..366b814 100644
+index 5355bdc..0472cf3 100644
 --- a/libavformat/http.c
 +++ b/libavformat/http.c
 @@ -1,6 +1,7 @@
@@ -310,8 +323,12 @@ index 5355bdc..366b814 100644
   *
   * This file is part of FFmpeg.
   *
-@@ -36,6 +37,8 @@
- #define BUFFER_SIZE 1024
+@@ -33,9 +34,11 @@
+    only a subset of it. */
+
+ /* used for protocol handling */
+-#define BUFFER_SIZE 1024
++#define BUFFER_SIZE 10240
  #define MAX_REDIRECTS 8
 
 +#define DEFAULT_UA "Mozilla/5.0 (iPad; U; CPU OS 4_2_1 like Mac OS X; zh-cn) AppleWebKit/533.17.9 (KHTML, like Gecko) Version/5.0.2 Mobile/8C148 Safari/6533.18.5"
@@ -319,16 +336,77 @@ index 5355bdc..366b814 100644
  typedef struct {
      const AVClass *class;
      URLContext *hd;
-@@ -404,14 +407,15 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
-                                                 local_path, method);
+@@ -99,11 +102,11 @@ void ff_http_init_auth_state(URLContext *dest, const URLContext *src)
+ static int http_open_cnx(URLContext *h)
+ {
+     const char *path, *proxy_path, *lower_proto = "tcp", *local_path;
+-    char hostname[1024], hoststr[1024], proto[10];
+-    char auth[1024], proxyauth[1024] = "";
+-    char path1[1024];
+-    char buf[1024], urlbuf[1024];
+-    int port, use_proxy, err, location_changed = 0, redirects = 0, attempts = 0;
++    char hostname[10240], hoststr[10240], proto[10];
++    char auth[10240], proxyauth[10240] = "";
++    char path1[10240];
++    char buf[10240], urlbuf[10240];
++    int port, use_proxy, err, location_changed = 0, redirects = 0, attempts = 0, change_ua = 0;
+     HTTPAuthType cur_auth_type, cur_proxy_auth_type;
+     HTTPContext *s = h->priv_data;
 
-     /* set default headers if needed */
-+    av_log(h, AV_LOG_VERBOSE, "HTTP host %s %s\n", hoststr, strstr(hoststr, "youku.com"));
-     if (!has_header(s->headers, "\r\nUser-Agent: "))
-         len += av_strlcatf(headers + len, sizeof(headers) - len,
-                            "User-Agent: %s\r\n",
--                           s->user_agent ? s->user_agent : LIBAVFORMAT_IDENT);
-+                           s->user_agent ? s->user_agent : DEFAULT_UA);
+@@ -165,6 +168,15 @@ static int http_open_cnx(URLContext *h)
+         } else
+             goto fail;
+     }
++    if (s->http_code == 403 && !change_ua) {
++      av_opt_set(s, "user-agent", DEFAULT_UA, 0);
++      ffurl_closep(&s->hd);
++      memset(&s->auth_state, 0, sizeof(s->auth_state));
++      attempts = 0;
++      location_changed = 0;
++      change_ua = 1;
++      goto redo;
++    }
+     if (s->http_code == 407) {
+         if ((cur_proxy_auth_type == HTTP_AUTH_NONE || s->proxy_auth_state.stale) &&
+             s->proxy_auth_state.auth_type != HTTP_AUTH_NONE && attempts < 4) {
+@@ -285,9 +297,9 @@ static int process_line(URLContext *h, char *line, int line_count,
+
+         /* error codes are 4xx and 5xx, but regard 401 as a success, so we
+          * don't abort until all headers have been parsed. */
+-        if (s->http_code >= 400 && s->http_code < 600 && (s->http_code != 401
+-            || s->auth_state.auth_type != HTTP_AUTH_NONE) &&
+-            (s->http_code != 407 || s->proxy_auth_state.auth_type != HTTP_AUTH_NONE)) {
++        if (s->http_code >= 400 && s->http_code < 600 && s->http_code != 403
++            && (s->http_code != 401 || s->auth_state.auth_type != HTTP_AUTH_NONE)
++            && (s->http_code != 407 || s->proxy_auth_state.auth_type != HTTP_AUTH_NONE)) {
+             end += strspn(end, SPACE_CHARS);
+             av_log(h, AV_LOG_WARNING, "HTTP error %d %s\n",
+                    s->http_code, end);
+@@ -352,7 +364,7 @@ static inline int has_header(const char *str, const char *header)
+ static int http_read_header(URLContext *h, int *new_location)
+ {
+     HTTPContext *s = h->priv_data;
+-    char line[1024];
++    char line[10240];
+     int err = 0;
+
+     s->chunksize = -1;
+@@ -380,13 +392,12 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+ {
+     HTTPContext *s = h->priv_data;
+     int post, err;
+-    char headers[1024] = "";
++    char headers[10240] = "";
+     char *authstr = NULL, *proxyauthstr = NULL;
+     int64_t off = s->off;
+     int len = 0;
+     const char *method;
+
+-
+     /* send http header */
+     post = h->flags & AVIO_FLAG_WRITE;
+
+@@ -411,7 +422,7 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
      if (!has_header(s->headers, "\r\nAccept: "))
          len += av_strlcpy(headers + len, "Accept: */*\r\n",
                            sizeof(headers) - len);
@@ -337,17 +415,37 @@ index 5355bdc..366b814 100644
          len += av_strlcatf(headers + len, sizeof(headers) - len,
                             "Range: bytes=%"PRId64"-\r\n", s->off);
 
-@@ -450,6 +454,8 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+@@ -450,6 +461,8 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
               authstr ? authstr : "",
               proxyauthstr ? "Proxy-" : "", proxyauthstr ? proxyauthstr : "");
 
 +
-+    av_log(h, AV_LOG_VERBOSE, "HTTP HEADERS: \n%s\n", s->buffer);
++    av_dlog(h, "HTTP HEADERS: \n%s\n", s->buffer);
      av_freep(&authstr);
      av_freep(&proxyauthstr);
      if ((err = ffurl_write(s->hd, s->buffer, strlen(s->buffer))) < 0)
+@@ -479,7 +492,7 @@ static int http_connect(URLContext *h, const char *path, const char *local_path,
+     /* wait for header */
+     err = http_read_header(h, new_location);
+     if (err < 0)
+-        return err;
++      return err;
+
+     return (off == s->off) ? 0 : -1;
+ }
+@@ -691,8 +704,8 @@ static int http_proxy_close(URLContext *h)
+ static int http_proxy_open(URLContext *h, const char *uri, int flags)
+ {
+     HTTPContext *s = h->priv_data;
+-    char hostname[1024], hoststr[1024];
+-    char auth[1024], pathbuf[1024], *path;
++    char hostname[10240], hoststr[10240];
++    char auth[10240], pathbuf[10240], *path;
+     char lower_url[100];
+     int port, ret = 0, attempts = 0;
+     HTTPAuthType cur_auth_type;
 diff --git a/libavformat/isom.h b/libavformat/isom.h
-index 5f7f189..202b66a 100644
+index f1cbe8c..9f6645a 100644
 --- a/libavformat/isom.h
 +++ b/libavformat/isom.h
 @@ -3,6 +3,7 @@
@@ -358,7 +456,7 @@ index 5f7f189..202b66a 100644
   *
   * This file is part of FFmpeg.
   *
-@@ -154,6 +155,8 @@ typedef struct MOVContext {
+@@ -155,6 +156,8 @@ typedef struct MOVContext {
      int chapter_track;
      int use_absolute_path;
      int64_t next_root_atom; ///< offset of the next root atom
@@ -522,7 +620,7 @@ index 0000000..33e96e6
 +  .url_close = mmsu_close,
 +};
 diff --git a/libavformat/mov.c b/libavformat/mov.c
-index becfeec..4d90933 100644
+index b4295f8..f53bddb 100644
 --- a/libavformat/mov.c
 +++ b/libavformat/mov.c
 @@ -2,6 +2,7 @@
